@@ -2,9 +2,13 @@ use super::{character::CharacterSheet, races::AvailableRaces};
 use enum_iterator::{all, Sequence};
 use std::{
     fmt,
-    io::{self, stdin, stdout, Write},
+    io::{self, stdin, stdout, Stdout, Write},
 };
-use termion::{event::Key, input::TermRead, raw::IntoRawMode};
+use termion::{
+    event::Key,
+    input::TermRead,
+    raw::{IntoRawMode, RawTerminal},
+};
 use util::EnumIter;
 
 /// Represents a menu item with a name and a value.
@@ -20,6 +24,10 @@ fn prompt_and_read_selection<T: Copy>(
 ) -> Result<T, io::Error> {
     let stdin = stdin();
     let mut stdout = stdout().into_raw_mode().unwrap();
+    let prompt = prompt.to_string() + "\r\n";
+    let prompt = prompt.as_str();
+
+    let next_cursor: u16 = prompt.to_string().split("\n").count() as u16 + 1;
 
     let mut cursor_pos = 0;
 
@@ -29,25 +37,14 @@ fn prompt_and_read_selection<T: Copy>(
         write!(
             stdout,
             "{}{}",
-            termion::cursor::Goto(1, 1),
+            termion::cursor::Goto(1, next_cursor),
             termion::clear::CurrentLine
         )
         .unwrap();
 
         match c.unwrap() {
-            Key::Char('q') => {
-                write!(
-                    stdout,
-                    "{}{}{}{}",
-                    termion::clear::All,
-                    termion::cursor::Goto(1, 1),
-                    "Goodbye!",
-                    termion::cursor::Hide
-                )
-                .unwrap();
-                write!(stdout, "{}", termion::cursor::Show).unwrap();
-                std::process::exit(0);
-            }
+            Key::Esc => exit(&mut stdout),
+            Key::Ctrl('c') => exit(&mut stdout),
             Key::Up => {
                 if cursor_pos > 0 {
                     cursor_pos -= 1;
@@ -130,13 +127,19 @@ fn prompt_and_read_input<T: fmt::Display>(
         termion::clear::CurrentLine
     )
     .unwrap();
+
+    let prompt = prompt.to_string() + "\r\n";
+    let prompt = prompt.as_str();
+
+    let next_cursor: u16 = prompt.to_string().split("\n").count() as u16 + 1;
+
     write!(
         stdout,
         "{}{}{}{}{}",
         termion::clear::All,
         termion::cursor::Goto(1, 1),
         prompt,
-        termion::cursor::Goto(1, 2),
+        termion::cursor::Goto(1, next_cursor),
         termion::cursor::Show
     )
     .unwrap();
@@ -147,6 +150,8 @@ fn prompt_and_read_input<T: fmt::Display>(
     let mut input = existing_value.to_string();
     for c in stdin.keys() {
         match c.unwrap() {
+            Key::Esc => exit(&mut stdout),
+            Key::Ctrl('c') => exit(&mut stdout),
             Key::Char('\r') => break,
             Key::Char('\n') => break,
             Key::Char(c) => {
@@ -154,7 +159,7 @@ fn prompt_and_read_input<T: fmt::Display>(
                 write!(
                     stdout,
                     "{}{}{}",
-                    termion::cursor::Goto(1, 2),
+                    termion::cursor::Goto(1, next_cursor),
                     termion::clear::CurrentLine,
                     input
                 )
@@ -165,7 +170,7 @@ fn prompt_and_read_input<T: fmt::Display>(
                 write!(
                     stdout,
                     "{}{}{}",
-                    termion::cursor::Goto(1, 2),
+                    termion::cursor::Goto(1, next_cursor),
                     termion::clear::CurrentLine,
                     input
                 )
@@ -275,4 +280,18 @@ fn print_character_sheet(character_sheet: &CharacterSheet) {
     }
 
     render(to_render);
+}
+
+fn exit(stdout: &mut RawTerminal<Stdout>) {
+    write!(
+        stdout,
+        "{}{}{}{}",
+        termion::clear::All,
+        termion::cursor::Goto(1, 1),
+        "Goodbye!",
+        termion::cursor::Hide
+    )
+    .unwrap();
+    write!(stdout, "{}", termion::cursor::Show).unwrap();
+    std::process::exit(0);
 }
