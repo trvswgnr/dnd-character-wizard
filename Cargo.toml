@@ -8,3 +8,4 @@ rand = "0.8"
 enum-iterator = "1.2"
 util = { path = "util" }
 termion = "2"
+num = "0.4"

@@ -26,7 +26,7 @@ struct Race {
 impl Race {
     fn new(race: AvailableRaces) -> Race {
         let name = race.to_string();
-        let ability_score_increases = race.get_ability_score_increase();
+        let ability_score_increases = race.get_ability_score_increases();
         return Race {
             name,
             ability_score_increases,
@@ -35,7 +35,7 @@ impl Race {
 }
 
 impl AvailableRaces {
-    fn get_ability_score_increase(&self) -> Vec<(AbilityName, i8)> {
+    pub fn get_ability_score_increases(&self) -> Vec<(AbilityName, i8)> {
         match *self {
             AvailableRaces::Dragonborn => {
                 vec![(AbilityName::Strength, 2), (AbilityName::Charisma, 1)]

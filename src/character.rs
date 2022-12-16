@@ -1,6 +1,7 @@
 use super::*;
 use classes::AvailableClasses;
 use enum_iterator::{all, Sequence};
+use num::Integer;
 use races::AvailableRaces;
 use rand::Rng;
 use std::ops::Index;
@@ -41,7 +42,6 @@ impl CharacterSheet {
             "level",
             "experience_points",
             "ability_scores",
-            "point_buy",
         ];
     }
 }
@@ -67,7 +67,7 @@ impl Index<&str> for CharacterSheet {
 }
 type Name = String;
 
-#[derive(Debug, Sequence, EnumIter, EnumString)]
+#[derive(Copy, Clone, Debug, Sequence, EnumIter, EnumString)]
 pub enum Alignment {
     LawfulGood,
     NeutralGood,
@@ -80,45 +80,74 @@ pub enum Alignment {
     ChaoticEvil,
 }
 
-type Level = u8;
+type Level = i8;
 
 type ExperiencePoints = u32;
 
-type AbilityScore = u8;
+type AbilityScore = i8;
 
 trait AbilityModifier {
-    fn get_modifier(&self) -> u8;
+    fn get_modifier(&self) -> i8;
 }
 
 impl AbilityModifier for AbilityScore {
-    fn get_modifier(&self) -> u8 {
+    fn get_modifier(&self) -> i8 {
         return (self - 10) / 2;
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct AbilityScores(HashMap<AbilityName, AbilityScore>);
 
 impl Default for AbilityScores {
     fn default() -> Self {
         let mut ability_scores = HashMap::new();
         for ability in AbilityName::iter() {
-            ability_scores.insert(ability, 10);
+            ability_scores.insert(ability, 8);
         }
         return AbilityScores(ability_scores);
+    }
+}
+
+impl AbilityScores {
+    pub fn get(&self, ability: AbilityName) -> AbilityScore {
+        return self.0.get(&ability).unwrap().clone();
+    }
+
+    pub fn set(&mut self, ability: AbilityName, score: AbilityScore) {
+        self.0.insert(ability, score);
+    }
+
+    // Sort the ability scores specically: STR, DEX, CON, INT, WIS, CHA
+    pub fn get_sorted(&self) -> Vec<(AbilityName, AbilityScore)> {
+        return vec![
+            (AbilityName::Strength, self.get(AbilityName::Strength)),
+            (AbilityName::Dexterity, self.get(AbilityName::Dexterity)),
+            (
+                AbilityName::Constitution,
+                self.get(AbilityName::Constitution),
+            ),
+            (
+                AbilityName::Intelligence,
+                self.get(AbilityName::Intelligence),
+            ),
+            (AbilityName::Wisdom, self.get(AbilityName::Wisdom)),
+            (AbilityName::Charisma, self.get(AbilityName::Charisma)),
+        ];
     }
 }
 
 impl ToString for AbilityScores {
     fn to_string(&self) -> String {
         let mut ability_scores = String::new();
-        for (ability, score) in self.0.iter() {
-            ability_scores.push_str(&format!("{}: {}\t", ability, score));
+        for (ability, score) in self.get_sorted() {
+            ability_scores.push_str(&format!("{}: {:<2}   ", ability, score));
         }
         return ability_scores;
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Sequence, EnumIter, EnumString)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Sequence, EnumIter, EnumString)]
 pub enum AbilityName {
     Strength,
     Dexterity,
@@ -163,16 +192,16 @@ enum Dice {
 }
 
 trait Roll {
-    fn roll(&mut self, num: u8) -> u8;
+    fn roll(&mut self, num: i8) -> i8;
 }
 
 impl Roll for Dice {
-    fn roll(&mut self, num: u8) -> u8 {
+    fn roll(&mut self, num: i8) -> i8 {
         let mut rng = rand::thread_rng();
         let mut total = 0;
 
         for _ in 0..num {
-            total += rng.gen_range(1..=*self as u8);
+            total += rng.gen_range(1..=*self as i8);
         }
 
         total
@@ -180,7 +209,7 @@ impl Roll for Dice {
 }
 
 /// Roll for an ability score. This is done by rolling 4d6 and dropping the lowest roll.
-fn roll_for_ability_score() -> u8 {
+fn roll_for_ability_score() -> i8 {
     let mut dice = Dice::D6;
     let mut rolls = [0; 4];
 
@@ -193,7 +222,7 @@ fn roll_for_ability_score() -> u8 {
     rolls[1] + rolls[2] + rolls[3]
 }
 
-fn get_ability_score_rolls() -> Vec<u8> {
+pub fn get_ability_score_rolls() -> Vec<i8> {
     let mut ability_score_rolls = Vec::new();
 
     for _ in 0..6 {

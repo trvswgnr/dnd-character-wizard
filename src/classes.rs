@@ -4,7 +4,7 @@ use rand::Rng;
 use std::{collections::HashMap, error::Error, io};
 use util::{EnumIter, EnumString};
 
-#[derive(Debug, Sequence, EnumIter, EnumString)]
+#[derive(Copy, Clone, Debug, Sequence, EnumIter, EnumString)]
 pub enum AvailableClasses {
     Barbarian,
     Bard,
