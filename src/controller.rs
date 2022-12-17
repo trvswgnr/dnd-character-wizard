@@ -9,11 +9,14 @@ use std::{
     io::{self, stdin, stdout, Stdout, Write},
     ops::Index,
 };
+use termion::{clear, event::*};
 use termion::{
-    event::Key,
-    input::TermRead,
+    cursor::{self, DetectCursorPos},
+    event::{Event, Key, MouseEvent},
+    input::{MouseTerminal, TermRead},
     raw::{IntoRawMode, RawTerminal},
 };
+
 use util::EnumIter;
 
 /// Represents a menu item with a name and a value.
@@ -28,7 +31,7 @@ fn prompt_and_read_selection<T: Copy>(
     menu: &Vec<MenuItem<T>>,
 ) -> Result<T, io::Error> {
     let stdin = stdin();
-    let mut stdout = stdout().into_raw_mode().unwrap();
+    let mut stdout = MouseTerminal::from(io::stdout().into_raw_mode().unwrap());
     let prompt = prompt.to_string() + "\r\n";
     let prompt = prompt.as_str();
 
@@ -38,34 +41,42 @@ fn prompt_and_read_selection<T: Copy>(
 
     render_menu(prompt, &menu, &cursor_pos);
 
-    for c in stdin.keys() {
-        write!(
-            stdout,
-            "{}{}",
-            termion::cursor::Goto(1, next_cursor),
-            termion::clear::CurrentLine
-        )
-        .unwrap();
-
-        match c.unwrap() {
-            Key::Esc => exit(&mut stdout),
-            Key::Ctrl('c') => exit(&mut stdout),
-            Key::Up => {
-                if cursor_pos > 0 {
-                    cursor_pos -= 1;
+    for c in stdin.events() {
+        let evt = c.unwrap();
+        match evt {
+            Event::Key(ke) => match ke {
+                Key::Esc => exit(&mut stdout),
+                Key::Ctrl('c') => exit(&mut stdout),
+                Key::Up => {
+                    if cursor_pos > 0 {
+                        cursor_pos -= 1;
+                    }
+                    render_menu(prompt, &menu, &cursor_pos);
+                    stdout.flush().unwrap();
                 }
-                render_menu(prompt, &menu, &cursor_pos);
-                stdout.flush().unwrap();
-            }
-            Key::Down => {
-                if cursor_pos < menu.len() - 1 {
-                    cursor_pos += 1;
+                Key::Down => {
+                    if cursor_pos < menu.len() - 1 {
+                        cursor_pos += 1;
+                    }
+                    render_menu(prompt, &menu, &cursor_pos);
+                    stdout.flush().unwrap();
                 }
-                render_menu(prompt, &menu, &cursor_pos);
-                stdout.flush().unwrap();
-            }
-            Key::Char('\r') => break,
-            Key::Char('\n') => break,
+                Key::Char('\r') => break,
+                Key::Char('\n') => break,
+                _ => {}
+            },
+            Event::Mouse(me) => match me {
+                MouseEvent::Press(_, a, b) | MouseEvent::Release(a, b) | MouseEvent::Hold(a, b) => {
+                    write!(stdout, "{}", cursor::Goto(a, b)).unwrap();
+                    let (x, y) = stdout.cursor_pos().unwrap();
+                    let is_in_menu_bounds = y >= next_cursor && y < next_cursor + menu.len() as u16;
+                    if is_in_menu_bounds {
+                        cursor_pos = (y - next_cursor) as usize;
+                        render_menu(prompt, &menu, &cursor_pos);
+                        stdout.flush().unwrap();
+                    }
+                }
+            },
             _ => {}
         }
     }
@@ -339,7 +350,7 @@ impl App {
             let mut score = ability_scores.get(ability);
             // get whichever is less, the remaining pool or the max score
             score = prompt_and_read_score_inc_dec(
-                format!("Adjust points for {}:", ability),
+                &format!("Adjust points for {}:", ability),
                 &score,
                 &mut pool,
             )
@@ -448,7 +459,6 @@ enum Page {
     Class,
     Abilities,
     Background,
-    Equipment,
     Spells,
     Feats,
     Bio,
@@ -493,42 +503,31 @@ fn exit(stdout: &mut RawTerminal<Stdout>) {
     std::process::exit(0);
 }
 
-fn prompt_and_read_score_inc_dec<T, Y>(
-    _prompt: T,
-    existing_value: &Y,
-    pool: &mut Y,
-) -> Result<Y, io::Error>
-where
-    T: fmt::Display,
-    Y: Integer + fmt::Display + Copy,
-{
-    let mut stdout = stdout().into_raw_mode().unwrap();
-    write!(
-        stdout,
-        "{}{}",
-        termion::cursor::Goto(1, 1),
-        termion::clear::CurrentLine
-    )
-    .unwrap();
+fn prompt_and_read_score_inc_dec(
+    prompt: &str,
+    existing_value: &i8,
+    pool: &mut i8,
+) -> Result<i8, io::Error> {
+    let mut stdout = stdout().into_raw_mode()?;
 
     let prompt_remaining = format!("Pool Remaining: {}\r\n", pool);
-    let prompt = _prompt.to_string() + "\r\n";
+    let prompt = prompt.to_string() + "\r\n";
     let prompt = prompt_remaining + prompt.as_str();
 
-    let mut pool_used = Y::zero();
+    let mut pool_used = 0;
 
     let next_cursor_row: u16 = prompt.to_string().split("\n").count() as u16 + 1;
 
-    let mut input = existing_value.clone() as Y;
+    let mut input = existing_value.clone();
 
     /// the minimum score
-    let min_score: Y = int(8);
+    let min_score = 8;
 
     /// the maximum score
-    let max_score: Y = int(15);
+    let max_score = 15;
 
     /// the threshold at which we start incrementing by 2
-    let threshold: Y = int(13);
+    let threshold = 13;
 
     write!(
         stdout,
@@ -538,10 +537,10 @@ where
         prompt,
         termion::cursor::Goto(1, next_cursor_row),
         input,
-        termion::cursor::Show
-    )
-    .unwrap();
-    stdout.flush().unwrap();
+        termion::cursor::Hide
+    )?;
+
+    stdout.flush()?;
 
     let stdin = stdin();
     // show the input as the user types
@@ -555,100 +554,67 @@ where
                 if input >= max_score || pool_used >= pool.clone() {
                     continue;
                 }
-                input = input + Y::one();
+
+                input = input + 1;
+
                 if input <= threshold {
-                    pool_used = pool_used + Y::one();
+                    pool_used = pool_used + 1;
                 } else {
-                    pool_used = pool_used + int(2);
+                    pool_used = pool_used + 2;
                 }
+
                 let prompt_remaining = format!("Pool Remaining: {}\r\n", pool.clone() - pool_used);
-                let prompt = _prompt.to_string() + "\r\n";
-                let prompt = prompt_remaining + prompt.as_str();
 
                 write!(
                     stdout,
-                    "{}{}{}{}{}{}",
-                    termion::clear::All,
-                    termion::cursor::Goto(1, 1),
-                    prompt,
+                    "{}{}{}{}{}{}{}",
+                    termion::cursor::Goto(17, 1),
+                    clear::UntilNewline,
+                    pool.clone() - pool_used,
                     termion::cursor::Goto(1, next_cursor_row),
+                    clear::CurrentLine,
                     input,
-                    termion::cursor::Show
-                )
-                .unwrap();
-                stdout.flush().unwrap();
+                    termion::cursor::Hide
+                )?;
 
-                write!(
-                    stdout,
-                    "{}{}{}",
-                    termion::cursor::Goto(1, next_cursor_row),
-                    termion::clear::CurrentLine,
-                    input
-                )
-                .unwrap();
-                stdout.flush().unwrap();
+                stdout.flush()?;
             }
             Key::Down => {
                 if input <= min_score {
                     continue;
                 }
-                input = input - Y::one();
+
+                input = input - 1;
+
                 if input < threshold {
-                    pool_used = cmp::max(Y::zero(), pool_used - Y::one());
+                    pool_used = cmp::max(0, pool_used - 1);
                 } else {
-                    pool_used = cmp::max(Y::zero(), pool_used - int(2));
+                    pool_used = cmp::max(0, pool_used - 2);
                 }
 
-                let prompt_remaining = format!("Pool Remaining: {}\r\n", pool.clone() - pool_used);
-                let prompt = _prompt.to_string() + "\r\n";
-                let prompt = prompt_remaining + prompt.as_str();
+                write!(
+                    stdout,
+                    "{}{}{}{}{}{}{}",
+                    termion::cursor::Goto(17, 1),
+                    clear::UntilNewline,
+                    pool.clone() - pool_used,
+                    termion::cursor::Goto(1, next_cursor_row),
+                    clear::CurrentLine,
+                    input,
+                    termion::cursor::Hide
+                )?;
 
-                write!(
-                    stdout,
-                    "{}{}{}{}{}{}",
-                    termion::clear::All,
-                    termion::cursor::Goto(1, 1),
-                    prompt,
-                    termion::cursor::Goto(1, next_cursor_row),
-                    input,
-                    termion::cursor::Show
-                )
-                .unwrap();
-                stdout.flush().unwrap();
-                write!(
-                    stdout,
-                    "{}{}{}",
-                    termion::cursor::Goto(1, next_cursor_row),
-                    termion::clear::CurrentLine,
-                    input,
-                )
-                .unwrap();
-                stdout.flush().unwrap();
+                stdout.flush()?;
             }
             _ => {}
         }
     }
 
-    if pool.clone() > int(0) {
+    write!(stdout, "{}", termion::cursor::Show)?;
+
+    if pool.clone() > 0 {
         *pool = pool.clone() - pool_used;
     }
 
     return Ok(input);
-}
-
-/// ! HACK
-///
-/// This is a garbage solution to the fact that I can't figure out how to
-/// coerce an integer literal to a generic type Y in the prompt_and_read_score_inc_dec function.
-///
-/// # Example
-/// ```
-/// let x = int(5);
-/// ```
-fn int<Y: Integer>(x: i32) -> Y {
-    let mut num = Y::zero();
-    for _ in 0..x {
-        num = num + Y::one();
-    }
-    return num;
 }
